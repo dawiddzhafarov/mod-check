@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	goModFile   = "go.mod"
-	entryLength = 60
+	// goModFile is the name of go mod file
+	goModFile = "go.mod"
 )
 
 var (
@@ -27,11 +27,10 @@ var (
 	yellow = color.New(color.FgYellow).SprintFunc()
 	green  = color.New(color.FgGreen).SprintFunc()
 	red    = color.New(color.FgGreen).SprintFunc()
+	cyan   = color.New(color.FgCyan).SprintFunc()
 )
 
 func Run(cfg *config.Config) {
-	versionSpace := cfg.Width - entryLength // TODO move to config?
-	versionNumber := versionSpace / 10
 
 	// Read in go.mod file
 	data, err := os.ReadFile("./" + goModFile)
@@ -70,6 +69,47 @@ func Run(cfg *config.Config) {
 		modules = append(modules, *mod)
 	}
 
+	// If dependency is provided, only process it
+	if cfg.Dependency != "" {
+		for _, dep := range modules {
+			if dep.Path == cfg.Dependency {
+				modules = module.Modules{dep}
+			}
+		}
+		if len(modules) > 1 {
+			log.Printf("dependency '%s' not found. Listing all dependencies\n", cfg.Dependency)
+		}
+	}
+
+	if cfg.Pretty {
+		processPretty(modules, *cfg, cfg.VersionCharSpace, cfg.VersionsToPrint)
+	} else {
+		processDefault(modules, *cfg)
+	}
+}
+
+func processDefault(modules module.Modules, cfg config.Config) {
+	for _, mod := range modules {
+		var newVersions []string
+		for _, availableVer := range mod.AvailableVersions {
+			currentVersion, err := ver.NewVersion(mod.CurrentVersion.Original)
+			if err != nil {
+				panic(err)
+			}
+			availableVersion, err := ver.NewVersion(availableVer.Original)
+			if availableVersion.GreaterThan(currentVersion) {
+				if v := filterVersions(availableVer, cfg.IsIncompatible, cfg.Filter); v != "" {
+					newVersions = append(newVersions, v)
+				}
+			}
+		}
+		if len(newVersions) != 0 {
+			fmt.Println(cyan(mod.Path), fmt.Sprintf("current: %s; available: %s", blue(mod.CurrentVersion.Original), strings.Join(newVersions, ", ")))
+		}
+	}
+}
+
+func processPretty(modules module.Modules, cfg config.Config, versionSpace, versionNumber int) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.AppendHeader(table.Row{"#", "Dependency", "Current Version", "Available Versions"})
@@ -111,9 +151,9 @@ func Run(cfg *config.Config) {
 		}
 		if len(newVersions) != 0 {
 			if len(newVersions) <= cfg.MaxVersions {
-				unwrapRows(i, mod.Path, mod.CurrentVersion.Original, versionNumber, newVersions, t)
+				unwrapRows(i, cyan(mod.Path), blue(mod.CurrentVersion.Original), versionNumber, newVersions, t)
 			} else {
-				unwrapRows(i, mod.Path, mod.CurrentVersion.Original, versionNumber, newVersions[:cfg.MaxVersions], t)
+				unwrapRows(i, cyan(mod.Path), blue(mod.CurrentVersion.Original), versionNumber, newVersions[:cfg.MaxVersions], t)
 			}
 		}
 	}
