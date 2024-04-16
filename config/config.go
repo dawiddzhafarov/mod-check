@@ -10,34 +10,69 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
+// minEntryLength is a length of the dependency number, name and current version chain of characters used in pretty print
+const minEntryLength = 60
+
 // Config represents configuration of invoked command
 type Config struct {
-	Width          int
-	Filter         string
-	IsIncompatible bool
-	TerminalWidth  int
-	MaxVersions    int
+	Dependency       string
+	Filter           string
+	IsIncompatible   bool
+	MaxVersions      int
+	Pretty           bool
+	ShowOld          bool
+	Width            int
+	VersionsToPrint  int
+	VersionCharSpace int
 }
 
 func New() *Config {
 	cfg := new(Config)
-	flag.IntVar(&cfg.MaxVersions, "max-versions", 15, "Specify maximum number of versions to display for each dependency.")
-	flag.StringVar(&cfg.Filter, "filter", "major,minor,patch", "Filter out the version types for display, available values: `major`, `minor`, `patch`. In order to use two filters, separate them with a comma (,). By default, all version types are included.")
-	flag.BoolVar(&cfg.IsIncompatible, "show-incompatible", false, "Show incompatible versions, disabled by default.")
-	flag.Parse()
+
+	// Parse flags and subcommands
+	parseFlags(cfg)
+	cfg.ShowOld = parseShowSubCmd()
+	cfg.Width = getTerminalWidth()
+
+	// validate flags
 	if err := cfg.validateFlags(); err != nil {
 		log.Fatalf("%v", err)
 	}
 
+	cfg.VersionCharSpace = cfg.Width - minEntryLength
+	cfg.VersionsToPrint = cfg.VersionCharSpace / 10
+
+	return cfg
+}
+
+func parseFlags(cfg *Config) {
+	flag.IntVar(&cfg.MaxVersions, "max-versions", 15, "Specify maximum number of versions to display for each dependency.")
+	flag.StringVar(&cfg.Filter, "filter", "major,minor,patch", "Filter out the version types for display, available values: `major`, `minor`, `patch`. In order to use two filters, separate them with a comma (,). By default, all version types are included.")
+	flag.StringVar(&cfg.Dependency, "dependency", "", "Check only provided dependency.")
+	flag.BoolVar(&cfg.IsIncompatible, "show-incompatible", false, "Show incompatible versions, disabled by default.")
+	flag.BoolVar(&cfg.Pretty, "pretty", false, "Print in pretty way, disabled by default.")
+	flag.Parse()
+}
+
+func parseShowSubCmd() bool {
+	showCmd := flag.NewFlagSet("show", flag.ExitOnError)
+	showOld := showCmd.Bool("old", false, "old")
+	if len(os.Args) > 1 && os.Args[1] == "show" {
+		showCmd.Parse(os.Args[2:])
+		return *showOld
+	}
+
+	return false
+}
+
+func getTerminalWidth() int {
 	fd := int(os.Stdin.Fd())
 	width, _, err := terminal.GetSize(fd)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 
-	cfg.Width = width
-
-	return cfg
+	return width
 }
 
 func (c *Config) validateFlags() error {
